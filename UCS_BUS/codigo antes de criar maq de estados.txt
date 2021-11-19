@@ -1,0 +1,418 @@
+/**
+ ******************************************************************************
+ * @file main.c
+ * @brief Adjustable LED blinking speed using STM8S-DISCOVERY touch sensing key
+ * Application example.
+ * @author STMicroelectronics - MCD Application Team
+ * @version V2.0.0
+ * @date 15-MAR-2011
+ ******************************************************************************
+ *
+ * THE PRESENT FIRMWARE WHICH IS FOR GUIDANCE ONLY AIMS AT PROVIDING CUSTOMERS
+ * WITH CODING INFORMATION REGARDING THEIR PRODUCTS IN ORDER FOR THEM TO SAVE
+ * TIME. AS A RESULT, STMICROELECTRONICS SHALL NOT BE HELD LIABLE FOR ANY
+ * DIRECT, INDIRECT OR CONSEQUENTIAL DAMAGES WITH RESPECT TO ANY CLAIMS ARISING
+ * FROM THE tamanhoMsgENT OF SUCH FIRMWARE AND/OR THE USE MADE BY CUSTOMERS OF THE
+ * CODING INFORMATION tamanhoMsgAINED HEREIN IN CONNECTION WITH THEIR PRODUCTS.
+ *
+ * <h2><center>&copy; COPYRIGHT 2008 STMicroelectronics</center></h2>
+ * @image html logo.bmp
+ ******************************************************************************
+ */
+
+/* Includes ------------------------------------------------------------------*/
+#include "stm8s.h"
+
+#include "stm8_tsl_api.h"
+
+/* Private typedef -----------------------------------------------------------*/
+/* Private define ------------------------------------------------------------*/
+#define MilliSec 1
+#define Sec 10
+#define led1 GPIO_PIN_2
+#define led2 GPIO_PIN_3
+#define botao1 GPIO_PIN_4
+#define botao2 GPIO_PIN_7
+/* Private macro -------------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
+/* Private function prototypes -----------------------------------------------*/
+void CLK_Configuration(void);
+void GPIO_Configuration(void);
+void ExtraCode_Init(void);
+void ExtraCode_StateMachine(void);
+void Delay(void action(void), int NumberofTIMCycles);
+void Toggle(void);
+
+/* Global variables ----------------------------------------------------------*/
+u8 BlinkSpeed = 6;
+int NumberOfStart;
+int CheckFlag = 1;
+
+void enviaSerial(char dado) {
+  UART2_SendData8(dado);
+  while (UART2_GetFlagStatus(UART2_FLAG_TC) == FALSE); //aguarda termino envio na serial
+}
+
+void limpaVetor(char vetor[], char tamanho) {
+  char varre = 0;
+  for (varre = 0; varre < tamanho; varre++) {
+    vetor[varre] = '\0';
+  }
+}
+
+void enviaTodoBuffer(char msg[], char tamanhoMsg) {
+  char varre = 0;
+  for (varre = 0; varre < tamanhoMsg; varre++) {
+    enviaSerial(msg[varre]);
+    /*UART2_SendData8(msg[varre]);
+    while (UART2_GetFlagStatus(UART2_FLAG_TC) == FALSE); //aguarda termino envio na serial*/
+  }
+}
+
+char calculateBCC(char msg[], char tamanhoMsg) {
+  char varre = 0, BCC = 0x00;
+
+  for (varre = 0; varre <= tamanhoMsg - 2; varre++) {
+    BCC = msg[varre] ^ BCC;
+  }
+  return BCC;
+}
+
+void debugCOM(char STX, char tamanhoPacote , char enderecoDestino, char enderecoOrigem, char comando, char dadosPacote1, char dadosPacote2, char BCC,char tamanhoMsg, char flagCOM) {
+	
+	enviaSerial(0x00);
+	enviaSerial(STX);
+  enviaSerial(0x01);
+	enviaSerial(tamanhoPacote);
+	enviaSerial(0x02);
+	enviaSerial(enderecoDestino);
+	enviaSerial(0x03);
+	enviaSerial(enderecoOrigem);
+	enviaSerial(0x04);
+	enviaSerial(comando);
+	enviaSerial(0x05);
+	enviaSerial(dadosPacote1);
+	enviaSerial(0x06);
+	enviaSerial(dadosPacote2);
+	enviaSerial(0x07);
+	enviaSerial(BCC);
+	enviaSerial(0x08);
+	enviaSerial(tamanhoMsg);
+	enviaSerial(0x09);
+	enviaSerial(flagCOM);
+}
+
+char coletaBuffer(char buffer[]) {
+  unsigned long tempo_RX = 0xFFFF;
+  char tamanhoMsg = 0;
+
+  while (tempo_RX > 0) {
+    if (UART2_GetFlagStatus(UART2_FLAG_RXNE) == TRUE) {
+      buffer[tamanhoMsg] = UART2_ReceiveData8();
+      tempo_RX = 0xFFF;
+      tamanhoMsg++;
+    }
+    tempo_RX--;
+  }
+  return tamanhoMsg;
+}
+
+/*
+void desmontaPacote(char Dado_RX_buffer[], char *STX, char *tamanhoPacote , char *enderecoDestino, char *enderecoOrigem, char *comando, char *dadosPacote1, char *dadosPacote2, char *BCC,char *tamanhoMsg, char *flagDados, char *flagCOM)
+{
+		*flagCOM= '\0';
+    *dadosPacote1 = '\0';
+    *dadosPacote2 = '\0';
+		*flagDados='\0';
+      if (Dado_RX_buffer[0] == 0x02) {
+        *STX = Dado_RX_buffer[0];
+        *BCC = calculateBCC(Dado_RX_buffer, *tamanhoMsg);
+        if (*BCC == Dado_RX_buffer[*tamanhoMsg - 1]) {
+          *tamanhoPacote = Dado_RX_buffer[1];
+          *enderecoDestino = Dado_RX_buffer[2];
+          *enderecoOrigem = Dado_RX_buffer[3];
+          *comando = Dado_RX_buffer[4];
+          if (*tamanhoMsg == 7) {
+						*flagDados=0x00;
+            *dadosPacote1 = Dado_RX_buffer[4];
+            *dadosPacote2 = '\0';
+          } else if (*tamanhoMsg == 8) {
+						*flagDados=0x01;
+            *dadosPacote1 = Dado_RX_buffer[4];
+            *dadosPacote2 = Dado_RX_buffer[5];
+          }
+			}else{
+				*flagCOM=0x01; //BCC errado
+			}
+		}else{
+			*flagCOM=0x03; //STX errado		
+		}
+	
+    
+}*/
+
+
+#define TAMANHO_MAX 100
+//#define tamanhoDados 10
+#define ENDERECO_DISP 0x05
+
+
+#include <stdio.h>
+
+void main(void) {
+  unsigned long tempo, tempo_RX = 0xFFF;
+  char delay = 0xFFFFF, tamanhoMsg = 0, varredura = 0,
+    Dado_RX_buffer[TAMANHO_MAX], BCC = 0x00, STX = 0x00,
+    tamanhoPacote = 0x00, enderecoDestino = 0x00, enderecoOrigem = 0x00,
+    comando = 0x00, dadosPacote1 = 0x00, dadosPacote2 = 0x00;
+  //char dadosPacote[tamanhoDados];
+	char flagDados='\0'; //Se 0 -> um byte de dados. Se 1 -> dois bytes de daods.
+	char flagCOM='\0';
+/*0x00: PACOTE RECEBIDO COM SUCESSO (ENDERECO DO DISPOSITIVO)
+	0x01: ERRO NA RECEPCAO DO PACOTE (BCC ERRADO)
+	0x02: PACOTE RECEBIDO MAS COM ENDERECO ERRADO
+	0x03: STX errado
+*/	
+	
+	
+  /* Configures clocks */
+  CLK_Configuration();
+
+  /* Configures GPIOs */
+  GPIO_Configuration();
+
+  UART2_Init(115200, UART2_WORDLENGTH_8D, UART2_STOPBITS_1,
+    UART2_PARITY_NO, UART2_SYNCMODE_CLOCK_DISABLE,
+    UART2_MODE_TXRX_ENABLE);while (1) { //===================================================================WHILE(1)============================
+    limpaVetor(Dado_RX_buffer,TAMANHO_MAX);
+    //limpaVetor(dadosPacote,tamanhoDados);
+    tamanhoMsg = coletaBuffer(Dado_RX_buffer); //Abre o buffer e recebe dados
+		
+    if (tamanhoMsg > 0) {
+    /*desmontaPacote(Dado_RX_buffer, &STX, &tamanhoPacote , &enderecoDestino, &enderecoOrigem, &comando, &dadosPacote1, &dadosPacote2, &BCC, &tamanhoMsg, &flagDados, &flagCOM);*/
+    //enviaTodoBuffer(Dado_RX_buffer, *tamanhoMsg);
+    flagCOM = '\0';
+    dadosPacote1 = '\0';
+    dadosPacote2 = '\0';
+    flagDados = '\0';
+    if (Dado_RX_buffer[0] == 0x02) { //STX CERTO
+        STX = Dado_RX_buffer[0];
+        BCC = calculateBCC(Dado_RX_buffer, tamanhoMsg);
+        if (ENDERECO_DISP == Dado_RX_buffer[2]) { //ENDERECO CERTO
+            if (BCC == Dado_RX_buffer[tamanhoMsg - 1]) { //BCC CERTO
+                tamanhoPacote = Dado_RX_buffer[1];
+                enderecoDestino = Dado_RX_buffer[2];
+                enderecoOrigem = Dado_RX_buffer[3];
+                comando = Dado_RX_buffer[4];
+                if (tamanhoPacote == 0x06) {
+                    flagDados = 0x00;
+                    dadosPacote1 = Dado_RX_buffer[4];
+                    dadosPacote2 = '\0';
+                } else if (tamanhoPacote == 0x07) {
+                    flagDados = 0x01;
+                    dadosPacote1 = Dado_RX_buffer[4];
+                    dadosPacote2 = Dado_RX_buffer[5];
+							} else if (tamanhoPacote == 0x05){
+											
+							}
+            } else { //BCC errado
+                flagCOM = 0x01;
+            }
+        } else { //Endereco de destino diferente
+            flagCOM = 0x02;
+        }
+    } else {
+        flagCOM = 0x03; //STX errado		
+    }
+    debugCOM(STX, tamanhoPacote, enderecoDestino, enderecoOrigem, comando, dadosPacote1, dadosPacote2, BCC, tamanhoMsg, flagCOM);
+}
+
+} //===============END WHILE(1)====================================}
+
+
+}//==============END MAIN()====================
+
+
+
+
+/**
+ ******************************************************************************
+ * @brief Initialize all the TS keys
+ * @par Parameters:
+ * None
+ * @retval void None
+ * @par Required preconditions:
+ * None
+ ******************************************************************************
+ */
+void ExtraCode_Init(void) {
+
+  u8 i;
+
+  /* All keys are implemented and enabled */
+
+  for (i = 0; i < NUMBER_OF_SINGLE_CHANNEL_KEYS; i++) {
+    sSCKeyInfo[i].Setting.b.IMPLEMENTED = 1;
+    sSCKeyInfo[i].Setting.b.ENABLED = 1;
+    sSCKeyInfo[i].DxSGroup = 0x01; /* Put 0x00 to disable the DES on these pins */
+  }
+
+  #if NUMBER_OF_MULTI_CHANNEL_KEYS > 0
+  for (i = 0; i < NUMBER_OF_MULTI_CHANNEL_KEYS; i++) {
+    sMCKeyInfo[i].Setting.b.IMPLEMENTED = 1;
+    sMCKeyInfo[i].Setting.b.ENABLED = 1;
+    sMCKeyInfo[i].DxSGroup = 0x01; /* Put 0x00 to disable the DES on these pins */
+  }
+  #endif
+
+  enableInterrupts();
+}
+
+/**
+ ******************************************************************************
+ * @brief Adjustable led blinking speed using touch sensing keys
+ * KEY1: LED1 is blinking
+ * KEY1: LED1 is blinking faster
+ * KEY1: LED1 don't blink anymore
+ * @par Parameters:
+ * None
+ * @retval void None
+ * @par Required preconditions:
+ * None
+ ******************************************************************************
+ */
+void ExtraCode_StateMachine(void) {
+  if ((TSL_GlobalSetting.b.CHANGED) && (TSLState == TSL_IDLE_STATE)) {
+    TSL_GlobalSetting.b.CHANGED = 0;
+
+    if (sSCKeyInfo[0].Setting.b.DETECTED) /* KEY 1 touched */ {
+      BlinkSpeed++;
+      BlinkSpeed = BlinkSpeed % 3;
+    }
+  }
+
+  switch (BlinkSpeed) {
+  case 0:
+    GPIO_WriteHigh(GPIOD, GPIO_PIN_0);
+    break;
+
+  case 1:
+    if (TSL_Tick_Flags.b.User1_Flag_100ms == 1) {
+      Delay( & Toggle, 2 * MilliSec);
+    }
+    break;
+
+  case 2:
+    if (TSL_Tick_Flags.b.User1_Flag_100ms == 1) {
+      Delay( & Toggle, 1 * MilliSec);
+    }
+    break;
+
+  default:
+    if (TSL_Tick_Flags.b.User1_Flag_100ms == 1) {
+      Delay( & Toggle, 1 * Sec);
+    }
+  }
+
+}
+
+/**
+ ******************************************************************************
+ * @brief Configures clocks
+ * @par Parameters:
+ * None
+ * @retval void None
+ * @par Required preconditions:
+ * None
+ ******************************************************************************
+ */
+void CLK_Configuration(void) {
+
+  /* Fmaster = 16MHz */
+  CLK_HSIPrescalerConfig(CLK_PRESCALER_HSIDIV1);
+
+}
+
+/**
+ ******************************************************************************
+ * @brief Configures GPIOs
+ * @par Parameters:
+ * None
+ * @retval void None
+ * @par Required preconditions:
+ * None
+ ******************************************************************************
+ */
+void GPIO_Configuration(void) {
+  /* GPIOD reset */
+  GPIO_DeInit(GPIOD);
+
+  /* Configure PD0 (LED1) as output push-pull low (led switched on) */
+  GPIO_Init(GPIOD, GPIO_PIN_0, GPIO_MODE_OUT_PP_LOW_FAST);
+  //saidas
+  GPIO_Init(GPIOD, GPIO_PIN_2, GPIO_MODE_OUT_PP_LOW_FAST); //led1
+  GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST); //led2
+  //entradas
+  GPIO_Init(GPIOD, GPIO_PIN_4, GPIO_MODE_IN_FL_NO_IT); //BT1
+  GPIO_Init(GPIOD, GPIO_PIN_7, GPIO_MODE_IN_FL_NO_IT); //BT2
+
+  //uart
+  GPIO_Init(GPIOD, GPIO_PIN_5, GPIO_MODE_OUT_PP_LOW_FAST); //TX
+  GPIO_Init(GPIOD, GPIO_PIN_6, GPIO_MODE_IN_FL_NO_IT); //rX
+
+}
+
+/**
+ ******************************************************************************
+ * @brief Delay before completing the action
+ * @param[in] function action() to be performed once the delay past
+ * @param[in]
+ * None
+ * @retval void None
+ * @par Required preconditions:
+ * None
+ ******************************************************************************
+ */
+void Delay(void action(void), int NumberofTIMCycles) {
+  if ((CheckFlag) != 0)
+    NumberOfStart = NumberofTIMCycles;
+  if (NumberOfStart != 0) {
+    TSL_Tick_Flags.b.User1_Start_100ms = 1;
+    CheckFlag = 0;
+  }
+  if (TSL_Tick_Flags.b.User1_Flag_100ms) {
+    TSL_Tick_Flags.b.User1_Flag_100ms = 0;
+    NumberOfStart--;
+  }
+  if (NumberOfStart == 0) {
+    action();
+    CheckFlag = 1;
+  }
+}
+
+/**
+ ******************************************************************************
+ * @brief Toggle PD0 (Led LD1)
+ * @par Parameters:
+ * None
+ * @retval void None
+ * @par Required preconditions:
+ * None
+ ******************************************************************************
+ */
+void Toggle(void) {
+  GPIO_WriteReverse(GPIOD, GPIO_PIN_0);
+}
+/****************** (c) 2008  STMicroelectronics ******************************/
+
+/*		UART2_SendData8(0x54);
+		for(tempo=0;tempo<=0xFFFF;tempo++) tamanhoMsginue;
+		UART2_SendData8(0x68);
+		for(tempo=0;tempo<=0xFFFF;tempo++) tamanhoMsginue;
+				UART2_SendData8(0x61);
+				for(tempo=0;tempo<=0xFFFF;tempo++) tamanhoMsginue;
+						UART2_SendData8(0x74);
+						for(tempo=0;tempo<=0xFFFF;tempo++) tamanhoMsginue;
+								UART2_SendData8(0x68);
+								for(tempo=0;tempo<=0xFFFF;tempo++) tamanhoMsginue;
+								UART2_SendData8(0x61);*/
