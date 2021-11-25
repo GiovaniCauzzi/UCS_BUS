@@ -67,8 +67,10 @@ void toggle_EN_pin(void);
 void toggle_io(unsigned char lcd_data, unsigned char bit_pos, unsigned char pin_num);
 
 #include <stdio.h>
+#include <string.h>
 
 #define TAMANHO_MAX 100
+#define TAMANHO_DADOS_RX 20
 //#define tamanhoDados 10
 #define STX 0x02
 #define ENDERECO_DISP 0x05
@@ -222,8 +224,9 @@ void piscaLED(char LED, char qtdePiscadas, char intervalo)
   }
 }
 
-void debugCOM(char STX_RX, char tamanhoPacote_RX, char enderecoDestino_RX, char enderecoOrigem_RX, char comando_RX, char dadosPacote1_RX, char dadosPacote2_RX, char BCC_RX, char tamanhoMsg, char flagCOM_RX)
+void debugCOM(char Dados_comando_RX[], char STX_RX, char tamanhoPacote_RX, char enderecoDestino_RX, char enderecoOrigem_RX, char comando_RX, char dadosPacote1_RX, char dadosPacote2_RX, char BCC_RX, char tamanhoMsg, char flagCOM_RX)
 {
+  char varredura = 0x00;
 
   enviaSerial(0x00);
   enviaSerial(STX_RX);
@@ -236,9 +239,13 @@ void debugCOM(char STX_RX, char tamanhoPacote_RX, char enderecoDestino_RX, char 
   enviaSerial(0x04);
   enviaSerial(comando_RX);
   enviaSerial(0x05);
-  enviaSerial(dadosPacote1_RX);
+    for(varredura=0; varredura<=sizeof(Dados_comando_RX)-1;varredura++)
+		{
+			enviaSerial(Dados_comando_RX[varredura]);
+		}
+  /*enviaSerial(dadosPacote1_RX);
   enviaSerial(0x06);
-  enviaSerial(dadosPacote2_RX);
+  enviaSerial(dadosPacote2_RX);*/
   enviaSerial(0x07);
   enviaSerial(BCC_RX);
   enviaSerial(0x08);
@@ -265,8 +272,10 @@ char coletaBuffer(char buffer[])
   return tamanhoMsg;
 }
 
-void zeraRegistradoresRX(char *STX_RX, char *tamanhoPacote_RX, char *enderecoDestino_RX, char *enderecoOrigem_RX, char *comando_RX, char *dadosPacote1_RX, char *dadosPacote2_RX, char *BCC_RX, char *tamanhoMsg, char *flagCOM_RX)
+void zeraRegistradoresRX(char Dados_comando_RX[], char *STX_RX, char *tamanhoPacote_RX, char *enderecoDestino_RX, char *enderecoOrigem_RX, char *comando_RX, char *dadosPacote1_RX, char *dadosPacote2_RX, char *BCC_RX, char *tamanhoMsg, char *flagCOM_RX)
 {
+  char varredura=0x00;
+
   *STX_RX = '\0';
   *tamanhoPacote_RX = '\0';
   *enderecoDestino_RX = '\0';
@@ -274,6 +283,9 @@ void zeraRegistradoresRX(char *STX_RX, char *tamanhoPacote_RX, char *enderecoDes
   *comando_RX = '\0';
   *dadosPacote1_RX = '\0';
   *dadosPacote2_RX = '\0';
+  for(varredura=0; varredura<=TAMANHO_DADOS_RX-1;varredura++){
+    Dados_comando_RX[varredura] = '\0';
+  }
   *BCC_RX = '\0';
   //* tamanhoMsg = '\0';
   //* flagCOM_RX = '\0';
@@ -322,9 +334,12 @@ void enviaPacote(char enderecoDestino, char comando, char dados1, char dados2)
   }
 }
 
-void processaPacoteRX(char STX_RX, char tamanhoPacote_RX, char enderecoDestino_RX, char enderecoOrigem_RX, char comando_RX, char dadosPacote1_RX, char dadosPacote2_RX, char BCC_RX, char flagCOM_RX)
+void processaPacoteRX(char Dados_comando_RX[],char STX_RX, char tamanhoPacote_RX, char enderecoDestino_RX, char enderecoOrigem_RX, char comando_RX, char dadosPacote1_RX, char dadosPacote2_RX, char BCC_RX, char flagCOM_RX, char qtdeDadosRX)
 { //função para tomar a decisão do que fazer a partir dos dados recebidos
-  switch (flagCOM_RX)
+	char varreduraAux=0x00;
+	char posicao=0x00;
+	
+	switch (flagCOM_RX)
   {
   case 0x00:
     switch (comando_RX)
@@ -353,39 +368,45 @@ void processaPacoteRX(char STX_RX, char tamanhoPacote_RX, char enderecoDestino_R
       break;
 
     case 0x03: //0x3: Escrita no Led 1, 0 para desligar o LED e 1 para ligar o LED
-      if (dadosPacote1_RX == 0x01)
+      if (Dados_comando_RX[0] == 0x01)
       {
         GPIO_WriteHigh(GPIOD, GPIO_PIN_2);
       }
-      else if (dadosPacote1_RX == 0x00)
+      else if (Dados_comando_RX[0] == 0x00)
       {
         GPIO_WriteLow(GPIOD, GPIO_PIN_2);
       }
       break;
 
     case 0x04: //0x4: Escrita no Led 2, 0 para desligar o LED e 1 para ligar o LED
-      if (dadosPacote1_RX == 0x01)
+      if (Dados_comando_RX[0] == 0x01)
       {
         GPIO_WriteHigh(GPIOD, GPIO_PIN_3);
       }
-      else if (dadosPacote1_RX == 0x00)
+      else if (Dados_comando_RX[0] == 0x00)
       {
         GPIO_WriteLow(GPIOD, GPIO_PIN_3);
       }
       break;
 
     case 0x05: //0x5: Pisca Led1, primeiro byte o número de piscadas e o segundo byte o tempo de cada piscada
-      piscaLED(0x01, dadosPacote1_RX, dadosPacote2_RX);
+      piscaLED(0x01, Dados_comando_RX[0], Dados_comando_RX[1]);
       break;
 
     case 0x06: //0x6: Pisca Led2, primeiro byte o número de piscadas e o segundo byte o tempo de cada piscada
-      piscaLED(0x02, dadosPacote1_RX, dadosPacote2_RX);
+      piscaLED(0x02, Dados_comando_RX[0], Dados_comando_RX[1]);
       break;
 
     case 0x07: //0x7 : Escreve uma mensagem do display, onde o primeiro dado é a posição do display (0x80 para a primeira posição) e os demais dados a mensagem (em ASCII)
+      LCD_goto(Dados_comando_RX[0], 0);
+      for(varreduraAux=1;varreduraAux<=qtdeDadosRX-1;varreduraAux++){
+        LCD_goto(posicao, 0); 
+        LCD_putchar(Dados_comando_RX[varreduraAux]);
+        posicao++;
+
+      }
+      LCD_goto(posicao, 0);                              
       
-      LCD_goto(dadosPacote1_RX, 0);                              
-      LCD_putchar(dadosPacote2_RX);
       break;
     }
 
@@ -405,7 +426,7 @@ void main(void)
   char delay = 0xFFFFF, tamanhoMsg = 0, varredura = 0,
        Dado_RX_buffer[TAMANHO_MAX], BCC_RX = 0x00, STX_RX = 0x00,
        tamanhoPacote_RX = 0x00, enderecoDestino_RX = 0x00, enderecoOrigem_RX = 0x00,
-       comando_RX = 0x00, dadosPacote1_RX = 0x00, dadosPacote2_RX = 0x00;
+       comando_RX = 0x00, dadosPacote1_RX = 0x00, dadosPacote2_RX = 0x00,Dados_comando_RX[TAMANHO_DADOS_RX],qtdeDadosRX=0x00;
   //char dadosPacote[tamanhoDados];
   char flagDados = '\0'; //Se 0 -> um byte de dados. Se 1 -> dois bytes de daods.
   char flagCOM_RX = '\0';
@@ -447,6 +468,13 @@ void main(void)
   LCD_init();
   LCD_clear_home();
 
+  /*TIM4_DeInit();
+
+  TIM4_TimeBaseInit(TIM4_PRESCALER_128, 0x7D);
+  TIM4_ITConfig(TIM4_IT_UPDATE, ENABLE);
+  TIM4_Cmd(ENABLE);
+
+enableInterrupts();*/
 
   while (1)
   { //===================================================================WHILE(1)============================
@@ -467,7 +495,7 @@ void main(void)
         {
 
         case 0x01: //LIMPA REGISTRADORES
-          zeraRegistradoresRX(&STX_RX, &tamanhoPacote_RX, &enderecoDestino_RX, &enderecoOrigem_RX, &comando_RX, &dadosPacote1_RX, &dadosPacote2_RX, &BCC_RX, &tamanhoMsg, &flagCOM_RX);
+          zeraRegistradoresRX(Dados_comando_RX, &STX_RX, &tamanhoPacote_RX, &enderecoDestino_RX, &enderecoOrigem_RX, &comando_RX, &dadosPacote1_RX, &dadosPacote2_RX, &BCC_RX, &tamanhoMsg, &flagCOM_RX);
           indiceMaqEstados++;
           break;
 
@@ -520,19 +548,24 @@ void main(void)
             indiceMaqEstados++;
             flagCOM_RX = 0x00;
           }
-          else if (tamanhoPacote_RX == 0x06)
+          else if (tamanhoPacote_RX > 0x05)
           {
-            dadosPacote1_RX = Dado_RX_buffer[5];
+            char varreduraAux=0x00;
+            for(varreduraAux=5;varreduraAux<=tamanhoMsg-2;varreduraAux++){
+            Dados_comando_RX[varreduraAux-5]=Dado_RX_buffer[varreduraAux];
+            }
+						qtdeDadosRX=tamanhoMsg-6;
+            //dadosPacote1_RX = Dado_RX_buffer[5];
             indiceMaqEstados++;
             flagCOM_RX = 0x00;
           }
-          else if (tamanhoPacote_RX == 0x07)
+          /*else if (tamanhoPacote_RX == 0x07)
           {
             dadosPacote1_RX = Dado_RX_buffer[5];
             dadosPacote2_RX = Dado_RX_buffer[6];
             indiceMaqEstados++;
             flagCOM_RX = 0x00;
-          }
+          }*/
           else
           {
             flagCOM_RX = 0x05;
@@ -543,8 +576,8 @@ void main(void)
 
       } // End while(flag)
 
-      debugCOM(STX_RX, tamanhoPacote_RX, enderecoDestino_RX, enderecoOrigem_RX, comando_RX, dadosPacote1_RX, dadosPacote2_RX, BCC_RX, tamanhoMsg, flagCOM_RX);
-      processaPacoteRX(STX_RX, tamanhoPacote_RX, enderecoDestino_RX, enderecoOrigem_RX, comando_RX, dadosPacote1_RX, dadosPacote2_RX, BCC_RX, flagCOM_RX);
+      //debugCOM(Dados_comando_RX, STX_RX, tamanhoPacote_RX, enderecoDestino_RX, enderecoOrigem_RX, comando_RX, dadosPacote1_RX, dadosPacote2_RX, BCC_RX, tamanhoMsg, flagCOM_RX);
+      processaPacoteRX(Dados_comando_RX, STX_RX, tamanhoPacote_RX, enderecoDestino_RX, enderecoOrigem_RX, comando_RX, dadosPacote1_RX, dadosPacote2_RX, BCC_RX, flagCOM_RX,qtdeDadosRX);
     }
 
   } //===============END WHILE(1)====================================}
