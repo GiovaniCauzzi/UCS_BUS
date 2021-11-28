@@ -259,6 +259,7 @@ char coletaBuffer(char buffer[])
   unsigned long tempo_RX = 0xFFFF;
   char tamanhoMsg = 0;
 
+  GPIO_WriteLow(GPIOD, GPIO_PIN_1); //Hab leitura
   while (tempo_RX > 0)
   {
     if (UART2_GetFlagStatus(UART2_FLAG_RXNE) == TRUE)
@@ -296,6 +297,7 @@ void enviaPacote(char enderecoDestino, char comando, char dados1, char dados2)
   //Endereco de origem (RX) da msg se torna o endereco de destino
   char BCC = 0x00, tamanhoPacote = 0x00;
 
+  GPIO_WriteHigh(GPIOD, GPIO_PIN_1); //Hab escrita
   if (dados1 == '\0' && dados2 == '\0') //Tamanho = 0x05
   {
     tamanhoPacote = 0x05;
@@ -332,6 +334,7 @@ void enviaPacote(char enderecoDestino, char comando, char dados1, char dados2)
     enviaSerial(dados2);
     enviaSerial(BCC);
   }
+  GPIO_WriteLow(GPIOD, GPIO_PIN_1); //Hab leitura
 }
 
 void processaPacoteRX(char Dados_comando_RX[],char STX_RX, char tamanhoPacote_RX, char enderecoDestino_RX, char enderecoOrigem_RX, char comando_RX, char dadosPacote1_RX, char dadosPacote2_RX, char BCC_RX, char flagCOM_RX, char qtdeDadosRX)
@@ -475,6 +478,9 @@ void main(void)
   TIM4_Cmd(ENABLE);
 
 enableInterrupts();*/
+  GPIO_WriteLow(GPIOD, GPIO_PIN_1); //Hab leitura
+
+  enviaPacote(0x04, 0x03, 0x01, '\0');
 
   while (1)
   { //===================================================================WHILE(1)============================
@@ -743,9 +749,11 @@ void GPIO_Configuration(void)
   //saidas
   GPIO_Init(GPIOD, GPIO_PIN_2, GPIO_MODE_OUT_PP_LOW_FAST); //led1
   GPIO_Init(GPIOD, GPIO_PIN_3, GPIO_MODE_OUT_PP_LOW_FAST); //led2
+  GPIO_Init(GPIOD, GPIO_PIN_1, GPIO_MODE_OUT_PP_LOW_FAST); //R/W 485
   //entradas
   GPIO_Init(GPIOD, GPIO_PIN_4, GPIO_MODE_IN_FL_NO_IT); //BT1
   GPIO_Init(GPIOD, GPIO_PIN_7, GPIO_MODE_IN_FL_NO_IT); //BT2
+  GPIO_Init(GPIOE, GPIO_PIN_7, GPIO_MODE_IN_FL_NO_IT); //BT2
 
   //uart
   GPIO_Init(GPIOD, GPIO_PIN_5, GPIO_MODE_OUT_PP_LOW_FAST); //TX
